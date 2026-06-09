@@ -104,28 +104,42 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
         # Determine which Anthropic model to call (override via env)
         model_name = os.getenv("ANTHROPIC_MODEL", "claude-2")
 
-        # Call Claude API
-        message = client.messages.create(
-            model=model_name,
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        # Call Anthropic API
+        print(f"[backend] Using Anthropic model: {model_name}")
+        try:
+            message = client.messages.create(
+                model=model_name,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as call_exc:
+            # Log full exception and re-raise for HTTP response
+            print("[backend] Anthropic call error:", repr(call_exc))
+            raise
 
-        # Parse Claude's response
+        # Parse Anthropic's response
         # Newer clients may return different shapes; try to access body robustly
         if hasattr(message, 'content') and isinstance(message.content, (list, tuple)):
             response_text = message.content[0].text
         else:
-            # Fallback to str(message)
+            # Fallback to string representation
             response_text = str(message)
 
-        pattern_data = json.loads(response_text)
+        try:
+            pattern_data = json.loads(response_text)
+        except json.JSONDecodeError as e:
+            print("[backend] Failed to parse Anthropic response:", response_text)
+            raise
 
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Invalid JSON from Anthropic: {str(e)}")
     except Exception as e:
         # Surface Anthropic error details for diagnosis
-        raise HTTPException(status_code=500, detail=f"Error generating pattern: {str(e)}")
+        # If it's an HTTP error object with .args, include them
+        detail_msg = str(e)
+        if hasattr(e, 'args'):
+            detail_msg += " | args:" + repr(e.args)
+        raise HTTPException(status_code=500, detail=f"Error generating pattern: {detail_msg}")
     
     # Create MIDI file
     try:
