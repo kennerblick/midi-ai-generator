@@ -325,6 +325,17 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
         midi_buffer.seek(0)
         midi_bytes = midi_buffer.getvalue()
 
+        # Diagnostic: log size and first bytes, and save a copy for inspection
+        try:
+            print(f"[backend] Generated MIDI size: {len(midi_bytes)} bytes")
+            prefix = midi_bytes[:16]
+            print(f"[backend] MIDI header (hex): {prefix.hex()}")
+            with open('/tmp/last_pattern.mid', 'wb') as f:
+                f.write(midi_bytes)
+            print("[backend] Saved /tmp/last_pattern.mid for inspection")
+        except Exception as _:
+            pass
+
         # Return MIDI file as a streaming response with proper headers
         headers = {"Content-Disposition": f"attachment; filename=pattern_{request.genre}_{request.bpm}bpm.mid"}
         return StreamingResponse(io.BytesIO(midi_bytes), media_type="audio/midi", headers=headers)
