@@ -211,7 +211,7 @@ function App() {
       const arrayBuffer = await response.arrayBuffer()
       const blob = new Blob([arrayBuffer], { type: 'audio/midi' })
       const url = URL.createObjectURL(blob)
-      const midi = new Midi(arrayBuffer)
+      const midi = new Midi(new Uint8Array(arrayBuffer))
       const trackCount = midi.tracks.length
       const noteCount = midi.tracks.reduce((sum, track) => sum + (Array.isArray(track.notes) ? track.notes.length : 0), 0)
 
