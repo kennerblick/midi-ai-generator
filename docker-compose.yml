@@ -15,8 +15,6 @@ services:
     build: ./frontend
     ports:
       - "9595:80"
-    environment:
-      - VITE_API_URL=http://localhost:8000
     restart: unless-stopped
     networks:
       - midiapp
