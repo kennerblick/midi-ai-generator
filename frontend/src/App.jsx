@@ -109,10 +109,11 @@ function App() {
 
     const instrumentsMap = {}
     const parts = []
-    let noteCount = 0
+    const notesToPlay = []
 
     midiData.tracks.forEach((track) => {
-      if (!track.notes.length) {
+      const trackNotes = Array.isArray(track.notes) ? track.notes : []
+      if (trackNotes.length === 0) {
         return
       }
 
@@ -125,31 +126,40 @@ function App() {
       }
 
       const synth = instrumentsMap[synthKey]
-      const notes = track.notes.map((note) => {
-        const noteName = note.name || Tone.Frequency(note.midi, 'midi').toNote()
-        const velocity = typeof note.velocity === 'number' ? note.velocity / 127 : 0.8
-        const duration = typeof note.duration === 'number' && note.duration > 0 ? note.duration : 0.25
+      const notes = trackNotes
+        .map((note) => {
+          const noteName = note.name || (typeof note.midi === 'number' ? Tone.Frequency(note.midi, 'midi').toNote() : null)
+          if (!noteName) {
+            return null
+          }
 
-        noteCount += 1
-        return {
-          time: (typeof note.time === 'number' ? note.time : 0) + 0.1,
-          note: noteName,
-          duration,
-          velocity
-        }
-      })
+          const velocity = typeof note.velocity === 'number' ? note.velocity / 127 : 0.8
+          const duration = typeof note.duration === 'number' && note.duration > 0 ? note.duration : 0.25
 
-      const part = new Tone.Part((time, note) => {
-        synth.triggerAttackRelease(note.note, note.duration, time, note.velocity)
-      }, notes).start(0)
+          return {
+            time: (typeof note.time === 'number' ? note.time : 0) + 0.1,
+            note: noteName,
+            duration,
+            velocity,
+            synth,
+          }
+        })
+        .filter(Boolean)
 
-      parts.push(part)
+      notesToPlay.push(...notes)
     })
 
-    if (noteCount === 0) {
+    if (notesToPlay.length === 0) {
       setError('No MIDI notes were found for playback.')
       return
     }
+
+    notesToPlay.forEach((noteData) => {
+      const part = new Tone.Part((time, note) => {
+        note.synth.triggerAttackRelease(note.note, note.duration, time, note.velocity)
+      }, [noteData]).start(0)
+      parts.push(part)
+    })
 
     partsRef.current = parts
     synthsRef.current = Object.values(instrumentsMap)
