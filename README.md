@@ -37,11 +37,15 @@ A Docker-based full-stack application that generates MIDI patterns using AI. The
    ANTHROPIC_API_KEY=your_api_key_here
    ANTHROPIC_MODEL=fable-5
    ```
-   Common model names are:
-   - `fable-5`
-   - `opus-4.8`
-   - `sonnet-4.6`
-   - `haiku-4.5`
+   Common model names are (short and Claude-style fully-qualified IDs):
+      - fable-5
+      - opus-4.8
+      - sonnet-4.6
+      - haiku-4.5
+      - claude-fable-5
+      - claude-opus-4-8
+      - claude-sonnet-4-6
+      - claude-haiku-4-5
 
 3. **Build and start the application**
    ```bash

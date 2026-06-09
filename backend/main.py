@@ -102,14 +102,49 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
 
     try:
         model_override = os.getenv("ANTHROPIC_MODEL")
-        model_candidates = [model_override] if model_override else [
+        # Try a broad set of candidate model IDs. Some Anthropic accounts expose
+        # claude-{family}-{version} style IDs (e.g. claude-sonnet-4-6) while
+        # others may expose short names (e.g. sonnet-4.6). Allow comma-separated
+        # override via ANTHROPIC_MODEL.
+        default_candidates = [
+            # Claude-style fully qualified IDs
+            "claude-fable-5",
+            "claude-opus-4-8",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            # Short or legacy variants (some accounts use these)
             "fable-5",
             "opus-4.8",
             "sonnet-4.6",
             "haiku-4.5",
+            # Fallback older names
+            "claude-2",
         ]
+
+        if model_override:
+            # Allow user to provide one or multiple comma-separated overrides
+            model_candidates = [m.strip() for m in model_override.split(",") if m.strip()]
+        else:
+            model_candidates = default_candidates
         pattern_data = None
         last_error = None
+
+        def extract_text(block):
+            if block is None:
+                return ""
+            if isinstance(block, str):
+                return block
+            if isinstance(block, (list, tuple)):
+                return "".join(extract_text(item) for item in block)
+            if hasattr(block, "text"):
+                return extract_text(block.text)
+            if hasattr(block, "content"):
+                return extract_text(block.content)
+            if hasattr(block, "parts"):
+                return extract_text(block.parts)
+            if hasattr(block, "data"):
+                return extract_text(block.data)
+            return str(block)
 
         for model_name in model_candidates:
             if not model_name:
@@ -126,8 +161,12 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                 last_error = call_exc
                 continue
 
-            if hasattr(message, 'content') and isinstance(message.content, (list, tuple)):
-                response_text = message.content[0].text
+            if hasattr(message, 'content'):
+                response_text = extract_text(message.content)
+            elif hasattr(message, 'output'):
+                response_text = extract_text(message.output)
+            elif hasattr(message, 'completion'):
+                response_text = extract_text(message.completion)
             else:
                 response_text = str(message)
 
