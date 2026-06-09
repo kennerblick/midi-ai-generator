@@ -109,6 +109,7 @@ function App() {
 
     const instrumentsMap = {}
     const parts = []
+    let noteCount = 0
 
     midiData.tracks.forEach((track) => {
       if (!track.notes.length) {
@@ -124,12 +125,19 @@ function App() {
       }
 
       const synth = instrumentsMap[synthKey]
-      const notes = track.notes.map((note) => ({
-        time: note.time + 0.1,
-        note: note.name,
-        duration: note.duration,
-        velocity: note.velocity / 127
-      }))
+      const notes = track.notes.map((note) => {
+        const noteName = note.name || Tone.Frequency(note.midi, 'midi').toNote()
+        const velocity = typeof note.velocity === 'number' ? note.velocity / 127 : 0.8
+        const duration = typeof note.duration === 'number' && note.duration > 0 ? note.duration : 0.25
+
+        noteCount += 1
+        return {
+          time: (typeof note.time === 'number' ? note.time : 0) + 0.1,
+          note: noteName,
+          duration,
+          velocity
+        }
+      })
 
       const part = new Tone.Part((time, note) => {
         synth.triggerAttackRelease(note.note, note.duration, time, note.velocity)
@@ -138,9 +146,15 @@ function App() {
       parts.push(part)
     })
 
+    if (noteCount === 0) {
+      setError('No MIDI notes were found for playback.')
+      return
+    }
+
     partsRef.current = parts
     synthsRef.current = Object.values(instrumentsMap)
     Tone.Transport.bpm.value = bpm
+    Tone.Transport.position = '0:0:0'
     Tone.Transport.start('+0.1')
     setIsPlaying(true)
   }
