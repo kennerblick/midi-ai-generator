@@ -30,7 +30,12 @@ A Docker-based full-stack application that generates MIDI patterns using AI. The
 2. **Set up environment variables**
    ```bash
    cp .env.example .env
-   # Edit .env and add your Anthropic API key
+   # Edit .env and add your Anthropic API key and optionally an Anthropic model name
+   ```
+   Example `.env`:
+   ```env
+   ANTHROPIC_API_KEY=your_api_key_here
+   ANTHROPIC_MODEL=claude-3
    ```
 
 3. **Build and start the application**
