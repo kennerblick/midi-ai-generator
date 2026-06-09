@@ -22,7 +22,7 @@ function App() {
   const [generatedData, setGeneratedData] = useState(null)
   const [downloadUrl, setDownloadUrl] = useState(null)
 
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
 
   const handleGenreChange = (newGenre) => {
     setGenre(newGenre)
