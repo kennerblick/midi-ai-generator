@@ -27,6 +27,8 @@ function App() {
   const [generatedData, setGeneratedData] = useState(null)
   const [downloadUrl, setDownloadUrl] = useState(null)
   const [midiData, setMidiData] = useState(null)
+  const [loadedNotes, setLoadedNotes] = useState(null)
+  const [loadedTracks, setLoadedTracks] = useState(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const partsRef = useRef([])
   const synthsRef = useRef([])
@@ -147,7 +149,8 @@ function App() {
     })
 
     if (notesToPlay.length === 0) {
-      setError('No MIDI notes were found for playback.')
+      const trackCount = midiData?.tracks?.length ?? 0
+      setError(`No MIDI notes were found for playback. Parsed tracks: ${trackCount}, loaded notes: ${loadedNotes ?? 0}`)
       return
     }
 
@@ -179,6 +182,8 @@ function App() {
     setGeneratedData(null)
     setDownloadUrl(null)
     setMidiData(null)
+    setLoadedNotes(null)
+    setLoadedTracks(null)
     stopPlayback()
 
     try {
@@ -207,10 +212,13 @@ function App() {
       const blob = new Blob([arrayBuffer], { type: 'audio/midi' })
       const url = URL.createObjectURL(blob)
       const midi = new Midi(arrayBuffer)
+      const trackCount = midi.tracks.length
       const noteCount = midi.tracks.reduce((sum, track) => sum + (Array.isArray(track.notes) ? track.notes.length : 0), 0)
 
       setDownloadUrl(url)
       setMidiData(midi)
+      setLoadedNotes(noteCount)
+      setLoadedTracks(trackCount)
       setSuccess(true)
 
       const fileName = `pattern_${genre}_${bpm}bpm.mid`
@@ -390,8 +398,12 @@ function App() {
                   <span className="value">{generatedData.style}</span>
                 </div>
                 <div className="info-item">
+                  <span className="label">Tracks loaded:</span>
+                  <span className="value">{loadedTracks ?? 0}</span>
+                </div>
+                <div className="info-item">
                   <span className="label">Notes loaded:</span>
-                  <span className="value">{generatedData.noteCount ?? 0}</span>
+                  <span className="value">{loadedNotes ?? 0}</span>
                 </div>
                 <div className="info-item full-width">
                   <span className="label">Instruments:</span>
