@@ -224,6 +224,14 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
             # Keep the last raw response text around for debugging when parsing fails
             last_response_text = response_text
 
+            # If the Anthropic client returned a streaming placeholder (e.g. ThinkingBlock),
+            # skip this model candidate and try the next one. These placeholders are not
+            # final content and cannot be parsed as JSON.
+            if isinstance(response_text, str) and ('ThinkingBlock(' in response_text or response_text.strip().startswith('ThinkingBlock')):
+                print(f"[backend] Skipping model {model_name} because it returned a streaming ThinkingBlock placeholder")
+                last_error = Exception("Anthropic returned streaming ThinkingBlock placeholder")
+                continue
+
             try:
                 pattern_data = json.loads(response_text)
                 break
