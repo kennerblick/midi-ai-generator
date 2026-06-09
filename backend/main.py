@@ -101,22 +101,30 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
 """
 
     try:
+        # Determine which Anthropic model to call (override via env)
+        model_name = os.getenv("ANTHROPIC_MODEL", "claude-2")
+
         # Call Claude API
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=model_name,
             max_tokens=2048,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
+            messages=[{"role": "user", "content": prompt}],
         )
-        
+
         # Parse Claude's response
-        response_text = message.content[0].text
+        # Newer clients may return different shapes; try to access body robustly
+        if hasattr(message, 'content') and isinstance(message.content, (list, tuple)):
+            response_text = message.content[0].text
+        else:
+            # Fallback to str(message)
+            response_text = str(message)
+
         pattern_data = json.loads(response_text)
-        
+
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Invalid JSON from Claude: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Invalid JSON from Anthropic: {str(e)}")
     except Exception as e:
+        # Surface Anthropic error details for diagnosis
         raise HTTPException(status_code=500, detail=f"Error generating pattern: {str(e)}")
     
     # Create MIDI file
