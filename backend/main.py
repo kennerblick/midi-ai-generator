@@ -159,6 +159,7 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
             model_candidates = default_candidates
         pattern_data = None
         last_error = None
+        last_response_text = None
 
         def extract_text(block):
             if block is None:
@@ -220,6 +221,9 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
             else:
                 response_text = str(message)
 
+            # Keep the last raw response text around for debugging when parsing fails
+            last_response_text = response_text
+
             try:
                 pattern_data = json.loads(response_text)
                 break
@@ -238,11 +242,16 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                     detail_msg += " | args:" + repr(last_error.args)
             else:
                 detail_msg = "unknown Anthropic error"
+            # Include a short preview of the raw model response to help debugging
+            preview = None
+            if last_response_text:
+                preview = last_response_text if len(last_response_text) <= 1000 else (last_response_text[:1000] + "... [truncated]")
             raise HTTPException(
                 status_code=500,
                 detail=(
                     "Error generating pattern: unable to use any Anthropic model "
-                    f"(tried {model_candidates}). last error: {detail_msg}"
+                    f"(tried {model_candidates}). last error: {detail_msg}. "
+                    f"Model response preview: {preview}"
                 ),
             )
 
