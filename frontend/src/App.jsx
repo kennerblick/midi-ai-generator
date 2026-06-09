@@ -215,6 +215,10 @@ function App() {
       const trackCount = midi.tracks.length
       const noteCount = midi.tracks.reduce((sum, track) => sum + (Array.isArray(track.notes) ? track.notes.length : 0), 0)
 
+      if (noteCount === 0) {
+        throw new Error('Generated MIDI file contains no note events.')
+      }
+
       setDownloadUrl(url)
       setMidiData(midi)
       setLoadedNotes(noteCount)

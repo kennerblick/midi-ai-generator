@@ -246,6 +246,25 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                 ),
             )
 
+        if not isinstance(pattern_data, dict) or not isinstance(pattern_data.get("tracks"), list):
+            raise HTTPException(
+                status_code=500,
+                detail="Error generating pattern: Anthropic response did not include a valid 'tracks' array."
+            )
+
+        valid_tracks = [
+            t for t in pattern_data.get("tracks", [])
+            if isinstance(t, dict) and isinstance(t.get("notes"), list) and len(t.get("notes", [])) > 0
+        ]
+        if not valid_tracks:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Error generating pattern: Anthropic response contained no valid MIDI tracks with notes. "
+                    "Please try again or adjust the prompt/model."
+                ),
+            )
+
     except HTTPException:
         raise
     except Exception as e:
