@@ -128,11 +128,8 @@ function App() {
       const synth = instrumentsMap[synthKey]
       const notes = trackNotes
         .map((note) => {
-          const noteName = note.name || (typeof note.midi === 'number' ? Tone.Frequency(note.midi, 'midi').toNote() : null)
-          if (!noteName) {
-            return null
-          }
-
+          const midiValue = typeof note.midi === 'number' ? note.midi : parseFloat(note.midi)
+          const noteName = note.name || (!Number.isNaN(midiValue) ? Tone.Frequency(midiValue, 'midi').toNote() : 'C4')
           const velocity = typeof note.velocity === 'number' ? note.velocity / 127 : 0.8
           const duration = typeof note.duration === 'number' && note.duration > 0 ? note.duration : 0.25
 
@@ -210,6 +207,7 @@ function App() {
       const blob = new Blob([arrayBuffer], { type: 'audio/midi' })
       const url = URL.createObjectURL(blob)
       const midi = new Midi(arrayBuffer)
+      const noteCount = midi.tracks.reduce((sum, track) => sum + (Array.isArray(track.notes) ? track.notes.length : 0), 0)
 
       setDownloadUrl(url)
       setMidiData(midi)
@@ -223,7 +221,8 @@ function App() {
         key,
         bars,
         style: style.trim() || 'Original',
-        instruments: selectedInstruments
+        instruments: selectedInstruments,
+        noteCount
       })
     } catch (err) {
       setError(err.message || 'Failed to generate pattern')
@@ -389,6 +388,10 @@ function App() {
                 <div className="info-item">
                   <span className="label">Style:</span>
                   <span className="value">{generatedData.style}</span>
+                </div>
+                <div className="info-item">
+                  <span className="label">Notes loaded:</span>
+                  <span className="value">{generatedData.noteCount ?? 0}</span>
                 </div>
                 <div className="info-item full-width">
                   <span className="label">Instruments:</span>
