@@ -103,14 +103,10 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
     try:
         model_override = os.getenv("ANTHROPIC_MODEL")
         model_candidates = [model_override] if model_override else [
-            "claude-4",
-            "claude-3.4",
-            "claude-3.1",
-            "claude-3",
-            "claude-2.1",
-            "claude-2",
-            "claude-1.3",
-            "claude-instant-v1",
+            "fable-5",
+            "opus-4.8",
+            "sonnet-4.6",
+            "haiku-4.5",
         ]
         pattern_data = None
         last_error = None

@@ -35,8 +35,13 @@ A Docker-based full-stack application that generates MIDI patterns using AI. The
    Example `.env`:
    ```env
    ANTHROPIC_API_KEY=your_api_key_here
-   ANTHROPIC_MODEL=claude-3
+   ANTHROPIC_MODEL=fable-5
    ```
+   Common model names are:
+   - `fable-5`
+   - `opus-4.8`
+   - `sonnet-4.6`
+   - `haiku-4.5`
 
 3. **Build and start the application**
    ```bash
