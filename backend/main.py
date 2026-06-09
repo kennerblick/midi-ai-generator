@@ -246,6 +246,12 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
             preview = None
             if last_response_text:
                 preview = last_response_text if len(last_response_text) <= 1000 else (last_response_text[:1000] + "... [truncated]")
+                # Also print the full raw response to stdout so it appears in container logs
+                try:
+                    print("[backend-debug] Raw Anthropic response:")
+                    print(last_response_text)
+                except Exception:
+                    pass
             raise HTTPException(
                 status_code=500,
                 detail=(
