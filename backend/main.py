@@ -57,7 +57,13 @@ async def generate(request: GenerateRequest):
     valid_components = ["kick", "bass", "lead", "chords", "hihat", "clap"]
     if not all(comp in valid_components for comp in request.components):
         raise HTTPException(status_code=400, detail=f"Invalid components. Valid: {valid_components}")
-    
+
+    if not anthropic_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Anthropic API key is not configured. Set ANTHROPIC_API_KEY in the environment."
+        )
+
     # Build the prompt for Claude
     prompt = f"""You are a professional music producer and composer specializing in {request.genre.upper()} music.
 
@@ -146,6 +152,25 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                 return extract_text(block.data)
             return str(block)
 
+        def extract_json_payload(text: str):
+            if not text:
+                return None
+
+            stripped = text.strip()
+            if stripped.startswith("```") and stripped.endswith("```"):
+                stripped = "\n".join(stripped.splitlines()[1:-1]).strip()
+
+            decoder = json.JSONDecoder()
+            for start_char in ('{', '['):
+                idx = stripped.find(start_char)
+                while idx != -1:
+                    try:
+                        obj, _ = decoder.raw_decode(stripped[idx:])
+                        return obj
+                    except json.JSONDecodeError:
+                        idx = stripped.find(start_char, idx + 1)
+            return None
+
         for model_name in model_candidates:
             if not model_name:
                 continue
@@ -174,6 +199,9 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                 pattern_data = json.loads(response_text)
                 break
             except json.JSONDecodeError as e:
+                pattern_data = extract_json_payload(response_text)
+                if pattern_data is not None:
+                    break
                 print(f"[backend] Failed to parse Anthropic response for model {model_name}:", response_text)
                 last_error = e
                 continue

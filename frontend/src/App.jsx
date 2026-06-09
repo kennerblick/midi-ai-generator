@@ -63,7 +63,8 @@ function App() {
       })
 
       if (!response.ok) {
-        throw new Error(`Error: ${response.statusText}`)
+        const errorText = await response.text()
+        throw new Error(`Error ${response.status}: ${response.statusText} - ${errorText}`)
       }
 
       const blob = await response.blob()
