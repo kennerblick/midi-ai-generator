@@ -101,41 +101,57 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
 """
 
     try:
-        # Determine which Anthropic model to call (override via env)
-        model_name = os.getenv("ANTHROPIC_MODEL", "claude-2")
+        model_override = os.getenv("ANTHROPIC_MODEL")
+        model_candidates = [model_override] if model_override else ["claude-3", "claude-3.1", "claude-2", "claude-2.1", "claude-1.3"]
+        pattern_data = None
+        last_error = None
 
-        # Call Anthropic API
-        print(f"[backend] Using Anthropic model: {model_name}")
-        try:
-            message = client.messages.create(
-                model=model_name,
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}],
+        for model_name in model_candidates:
+            if not model_name:
+                continue
+            print(f"[backend] Attempting Anthropic model: {model_name}")
+            try:
+                message = client.messages.create(
+                    model=model_name,
+                    max_tokens=2048,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            except Exception as call_exc:
+                print(f"[backend] Anthropic call error for model {model_name}:", repr(call_exc))
+                last_error = call_exc
+                continue
+
+            if hasattr(message, 'content') and isinstance(message.content, (list, tuple)):
+                response_text = message.content[0].text
+            else:
+                response_text = str(message)
+
+            try:
+                pattern_data = json.loads(response_text)
+                break
+            except json.JSONDecodeError as e:
+                print(f"[backend] Failed to parse Anthropic response for model {model_name}:", response_text)
+                last_error = e
+                continue
+
+        if pattern_data is None:
+            if last_error is not None:
+                detail_msg = str(last_error)
+                if hasattr(last_error, 'args'):
+                    detail_msg += " | args:" + repr(last_error.args)
+            else:
+                detail_msg = "unknown Anthropic error"
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Error generating pattern: unable to use any Anthropic model "
+                    f"(tried {model_candidates}). last error: {detail_msg}"
+                ),
             )
-        except Exception as call_exc:
-            # Log full exception and re-raise for HTTP response
-            print("[backend] Anthropic call error:", repr(call_exc))
-            raise
 
-        # Parse Anthropic's response
-        # Newer clients may return different shapes; try to access body robustly
-        if hasattr(message, 'content') and isinstance(message.content, (list, tuple)):
-            response_text = message.content[0].text
-        else:
-            # Fallback to string representation
-            response_text = str(message)
-
-        try:
-            pattern_data = json.loads(response_text)
-        except json.JSONDecodeError as e:
-            print("[backend] Failed to parse Anthropic response:", response_text)
-            raise
-
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Invalid JSON from Anthropic: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
-        # Surface Anthropic error details for diagnosis
-        # If it's an HTTP error object with .args, include them
         detail_msg = str(e)
         if hasattr(e, 'args'):
             detail_msg += " | args:" + repr(e.args)
