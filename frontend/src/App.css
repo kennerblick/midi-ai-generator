@@ -253,18 +253,8 @@ body {
 }
 
 .playback-btn:hover {
-  background-color: rgba(0, 255, 136, 0.15);
-  box-shadow: 0 0 15px rgba(0, 255, 136, 0.2);
-  border: none;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  font-size: 1em;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-top: 15px;
+  background-color: rgba(0, 255, 136, 0.12);
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.15);
 }
 
 .generate-btn:hover:not(:disabled) {
