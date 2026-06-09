@@ -2,14 +2,29 @@ import os
 import io
 import json
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from anthropic import Anthropic
 from midiutil import MIDIFile
 
 app = FastAPI(title="MIDI AI Pattern Generator")
 
-client = Anthropic()
+# Configure Anthropic client using environment variable if provided
+anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+if anthropic_key:
+    client = Anthropic(api_key=anthropic_key)
+else:
+    client = Anthropic()
+
+# Allow frontend origins to access the API (adjust if needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:9595", "http://localhost:3000", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class GenerateRequest(BaseModel):
     genre: str
@@ -131,13 +146,11 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
         midi_buffer = io.BytesIO()
         midi.writeFile(midi_buffer)
         midi_buffer.seek(0)
-        
-        # Return MIDI file
-        return FileResponse(
-            io.BytesIO(midi_buffer.getvalue()),
-            media_type="audio/midi",
-            filename=f"pattern_{request.genre}_{request.bpm}bpm.mid"
-        )
+        midi_bytes = midi_buffer.getvalue()
+
+        # Return MIDI file as a streaming response with proper headers
+        headers = {"Content-Disposition": f"attachment; filename=pattern_{request.genre}_{request.bpm}bpm.mid"}
+        return StreamingResponse(io.BytesIO(midi_bytes), media_type="audio/midi", headers=headers)
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating MIDI file: {str(e)}")
