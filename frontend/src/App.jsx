@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Midi } from '@tonejs/midi'
+import * as Tone from 'tone'
 import './App.css'
 
 const GENRE_PRESETS = {
@@ -8,21 +10,29 @@ const GENRE_PRESETS = {
 }
 
 const VALID_KEYS = ['Am', 'Cm', 'Fm', 'Gm', 'Dm', 'Em', 'C', 'F', 'G']
-const COMPONENTS_LIST = ['kick', 'bass', 'lead', 'chords', 'hihat', 'clap']
+const INSTRUMENT_OPTIONS = ['kick', 'bass', 'lead', 'chords', 'hihat', 'clap', 'pad', 'strings', 'arp', 'synth', 'percussion']
+
+const formatLabel = (label) => label.charAt(0).toUpperCase() + label.slice(1)
 
 function App() {
   const [genre, setGenre] = useState('house')
   const [bpm, setBpm] = useState(125)
   const [key, setKey] = useState('Am')
   const [bars, setBars] = useState(8)
-  const [components, setComponents] = useState(new Set(COMPONENTS_LIST))
+  const [style, setStyle] = useState('')
+  const [instruments, setInstruments] = useState(new Set(INSTRUMENT_OPTIONS))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [generatedData, setGeneratedData] = useState(null)
   const [downloadUrl, setDownloadUrl] = useState(null)
+  const [midiData, setMidiData] = useState(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const partsRef = useRef([])
+  const synthsRef = useRef([])
 
   const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`
+  const selectedInstruments = Array.from(instruments)
 
   const handleGenreChange = (newGenre) => {
     setGenre(newGenre)
@@ -30,15 +40,116 @@ function App() {
     setError('')
   }
 
-  const handleComponentChange = (component) => {
-    const newComponents = new Set(components)
-    if (newComponents.has(component)) {
-      newComponents.delete(component)
+  const handleInstrumentChange = (instrument) => {
+    const updated = new Set(instruments)
+    if (updated.has(instrument)) {
+      updated.delete(instrument)
     } else {
-      newComponents.add(component)
+      updated.add(instrument)
     }
-    setComponents(newComponents)
+    setInstruments(updated)
   }
+
+  const createSynth = (trackName) => {
+    const lowerName = trackName.toLowerCase()
+
+    if (lowerName.includes('kick')) {
+      return new Tone.MembraneSynth({
+        pitchDecay: 0.01,
+        octaves: 10,
+        envelope: { attack: 0.001, decay: 0.15, sustain: 0.01, release: 0.15 }
+      }).toDestination()
+    }
+
+    if (lowerName.includes('hihat') || lowerName.includes('clap') || lowerName.includes('percussion')) {
+      return new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.1 }
+      }).toDestination()
+    }
+
+    if (lowerName.includes('bass')) {
+      return new Tone.MonoSynth({
+        oscillator: { type: 'square' },
+        filter: { Q: 2, type: 'lowpass', rolloff: -24 },
+        envelope: { attack: 0.01, decay: 0.3, sustain: 0.6, release: 0.8 }
+      }).toDestination()
+    }
+
+    if (lowerName.includes('chords') || lowerName.includes('strings') || lowerName.includes('pad')) {
+      return new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.1, decay: 0.3, sustain: 0.6, release: 1.2 }
+      }).toDestination()
+    }
+
+    return new Tone.Synth({
+      oscillator: { type: lowerName.includes('lead') ? 'sawtooth' : 'triangle' },
+      envelope: { attack: 0.02, decay: 0.2, sustain: 0.5, release: 1 }
+    }).toDestination()
+  }
+
+  const stopPlayback = () => {
+    Tone.Transport.stop()
+    Tone.Transport.cancel(0)
+    partsRef.current.forEach((part) => part.dispose())
+    synthsRef.current.forEach((instrument) => instrument.dispose())
+    partsRef.current = []
+    synthsRef.current = []
+    setIsPlaying(false)
+  }
+
+  const handlePlay = async () => {
+    if (!midiData) {
+      return
+    }
+
+    await Tone.start()
+    stopPlayback()
+
+    const instrumentsMap = {}
+    const parts = []
+
+    midiData.tracks.forEach((track) => {
+      if (!track.notes.length) {
+        return
+      }
+
+      const trackName = track.name || 'synth'
+      const synthKey = ['kick', 'hihat', 'clap', 'percussion', 'bass', 'lead', 'chords', 'strings', 'pad', 'arp', 'synth']
+        .find((key) => trackName.toLowerCase().includes(key)) || 'synth'
+
+      if (!instrumentsMap[synthKey]) {
+        instrumentsMap[synthKey] = createSynth(synthKey)
+      }
+
+      const synth = instrumentsMap[synthKey]
+      const notes = track.notes.map((note) => ({
+        time: note.time + 0.1,
+        note: note.name,
+        duration: note.duration,
+        velocity: note.velocity / 127
+      }))
+
+      const part = new Tone.Part((time, note) => {
+        synth.triggerAttackRelease(note.note, note.duration, time, note.velocity)
+      }, notes).start(0)
+
+      parts.push(part)
+    })
+
+    partsRef.current = parts
+    synthsRef.current = Object.values(instrumentsMap)
+    Tone.Transport.bpm.value = bpm
+    Tone.Transport.start('+0.1')
+    setIsPlaying(true)
+  }
+
+  useEffect(() => {
+    return () => {
+      stopPlayback()
+    }
+  }, [])
 
   const handleGenerate = async () => {
     setLoading(true)
@@ -46,6 +157,8 @@ function App() {
     setSuccess(false)
     setGeneratedData(null)
     setDownloadUrl(null)
+    setMidiData(null)
+    stopPlayback()
 
     try {
       const response = await fetch(`${apiUrl}/generate`, {
@@ -58,7 +171,9 @@ function App() {
           bpm,
           key,
           bars,
-          components: Array.from(components)
+          style: style.trim() || undefined,
+          components: selectedInstruments,
+          instruments: selectedInstruments
         })
       })
 
@@ -67,12 +182,15 @@ function App() {
         throw new Error(`Error ${response.status}: ${response.statusText} - ${errorText}`)
       }
 
-      const blob = await response.blob()
+      const arrayBuffer = await response.arrayBuffer()
+      const blob = new Blob([arrayBuffer], { type: 'audio/midi' })
       const url = URL.createObjectURL(blob)
+      const midi = new Midi(arrayBuffer)
+
       setDownloadUrl(url)
+      setMidiData(midi)
       setSuccess(true)
 
-      // Create a simple text representation
       const fileName = `pattern_${genre}_${bpm}bpm.mid`
       setGeneratedData({
         fileName,
@@ -80,7 +198,8 @@ function App() {
         bpm,
         key,
         bars,
-        components: Array.from(components)
+        style: style.trim() || 'Original',
+        instruments: selectedInstruments
       })
     } catch (err) {
       setError(err.message || 'Failed to generate pattern')
@@ -93,7 +212,7 @@ function App() {
     if (downloadUrl) {
       const a = document.createElement('a')
       a.href = downloadUrl
-      a.download = `pattern_${genre}_${bpm}bpm.mid`
+      a.download = generatedData?.fileName || `pattern_${genre}_${bpm}bpm.mid`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -113,7 +232,7 @@ function App() {
           <div className="control-group">
             <label>Genre</label>
             <div className="button-group">
-              {Object.keys(GENRE_PRESETS).map(g => (
+              {Object.keys(GENRE_PRESETS).map((g) => (
                 <button
                   key={g}
                   className={`genre-btn ${genre === g ? 'active' : ''}`}
@@ -151,17 +270,30 @@ function App() {
               onChange={(e) => setKey(e.target.value)}
               className="select"
             >
-              {VALID_KEYS.map(k => (
+              {VALID_KEYS.map((k) => (
                 <option key={k} value={k}>{k}</option>
               ))}
             </select>
+          </div>
+
+          {/* Style Input */}
+          <div className="control-group">
+            <label htmlFor="style">Style / Artist / Band</label>
+            <input
+              id="style"
+              type="text"
+              value={style}
+              onChange={(e) => setStyle(e.target.value)}
+              placeholder="e.g. Daft Punk, Tale Of Us, or classic house"
+              className="text-input"
+            />
           </div>
 
           {/* Bars Selector */}
           <div className="control-group">
             <label>Pattern Length (Bars)</label>
             <div className="button-group">
-              {[4, 8, 16].map(b => (
+              {[4, 8, 16].map((b) => (
                 <button
                   key={b}
                   className={`bars-btn ${bars === b ? 'active' : ''}`}
@@ -173,41 +305,38 @@ function App() {
             </div>
           </div>
 
-          {/* Components Checkboxes */}
+          {/* Instrument Selection */}
           <div className="control-group">
-            <label>Components</label>
-            <div className="checkbox-group">
-              {COMPONENTS_LIST.map(comp => (
-                <label key={comp} className="checkbox-label">
+            <label>Instruments</label>
+            <div className="checkbox-group columns">
+              {INSTRUMENT_OPTIONS.map((instrument) => (
+                <label key={instrument} className="checkbox-label">
                   <input
                     type="checkbox"
-                    checked={components.has(comp)}
-                    onChange={() => handleComponentChange(comp)}
+                    checked={instruments.has(instrument)}
+                    onChange={() => handleInstrumentChange(instrument)}
                   />
-                  <span>{comp.charAt(0).toUpperCase() + comp.slice(1)}</span>
+                  <span>{formatLabel(instrument)}</span>
                 </label>
               ))}
             </div>
           </div>
 
-          {/* Generate Button */}
           <button
             onClick={handleGenerate}
-            disabled={loading || components.size === 0}
+            disabled={loading || instruments.size === 0}
             className="generate-btn"
           >
             {loading ? 'Generating...' : '✨ Generate'}
           </button>
         </div>
 
-        {/* Error Display */}
         {error && (
           <div className="error-message">
             ❌ {error}
           </div>
         )}
 
-        {/* Success Display */}
         {success && generatedData && (
           <div className="success-section">
             <div className="success-message">
@@ -233,19 +362,32 @@ function App() {
                   <span className="label">Bars:</span>
                   <span className="value">{generatedData.bars}</span>
                 </div>
+                <div className="info-item">
+                  <span className="label">Style:</span>
+                  <span className="value">{generatedData.style}</span>
+                </div>
                 <div className="info-item full-width">
-                  <span className="label">Components:</span>
-                  <span className="value">{generatedData.components.join(', ')}</span>
+                  <span className="label">Instruments:</span>
+                  <span className="value">{generatedData.instruments.join(', ')}</span>
                 </div>
               </div>
             </div>
 
-            <button
-              onClick={handleDownload}
-              className="download-btn"
-            >
-              ⬇️ Download MIDI
-            </button>
+            <div className="button-row">
+              <button
+                onClick={handleDownload}
+                className="download-btn"
+              >
+                ⬇️ Download MIDI
+              </button>
+              <button
+                onClick={isPlaying ? stopPlayback : handlePlay}
+                className="playback-btn"
+                disabled={!midiData}
+              >
+                {isPlaying ? '⏹ Stop' : '🎧 Play'}
+              </button>
+            </div>
           </div>
         )}
       </main>

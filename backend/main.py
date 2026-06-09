@@ -31,7 +31,9 @@ class GenerateRequest(BaseModel):
     bpm: int
     key: str
     bars: int
+    style: str | None = None
     components: list[str]
+    instruments: list[str] | None = None
 
 @app.get("/health")
 async def health():
@@ -54,9 +56,29 @@ async def generate(request: GenerateRequest):
     if request.key not in valid_keys:
         raise HTTPException(status_code=400, detail=f"Invalid key. Valid keys: {valid_keys}")
     
-    valid_components = ["kick", "bass", "lead", "chords", "hihat", "clap"]
-    if not all(comp in valid_components for comp in request.components):
-        raise HTTPException(status_code=400, detail=f"Invalid components. Valid: {valid_components}")
+    valid_components = [
+        "kick",
+        "bass",
+        "lead",
+        "chords",
+        "hihat",
+        "clap",
+        "pad",
+        "strings",
+        "arp",
+        "synth",
+        "percussion",
+    ]
+    instruments = request.instruments or request.components
+    if not instruments:
+        raise HTTPException(status_code=400, detail="You must select at least one instrument.")
+    if not all(comp in valid_components for comp in instruments):
+        raise HTTPException(status_code=400, detail=f"Invalid instruments. Valid: {valid_components}")
+
+    if request.style:
+        style_text = f"Use the style of {request.style}."
+    else:
+        style_text = "Use an original modern electronic dance music style."
 
     if not anthropic_key:
         raise HTTPException(
@@ -72,9 +94,12 @@ Generate a MIDI pattern with the following specifications:
 - BPM: {request.bpm}
 - Musical Key: {request.key}
 - Pattern Length: {request.bars} bars
-- Components: {', '.join(request.components)}
+- Instruments: {', '.join(instruments)}
+- Style: {request.style or 'original modern electronic dance music style'}
 
-For each component, provide a JSON structure with track name and MIDI notes. Each note should have:
+{style_text}
+
+For each instrument, provide a JSON structure with track name and MIDI notes. Each note should have:
 - pitch: MIDI note number (0-127)
 - start_beat: beat number where note starts (0-based, relative to total beats)
 - duration: duration in beats
