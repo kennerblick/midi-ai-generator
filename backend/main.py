@@ -296,12 +296,35 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                 generation_error = (last_error, last_response_text)
                 continue
 
-            if not isinstance(pattern_data, dict) or not isinstance(pattern_data.get("tracks"), list):
-                generation_error = (Exception("Invalid tracks array"), last_response_text)
+            if not isinstance(pattern_data, dict):
+                generation_error = (Exception("Invalid tracks array: top-level response was not an object."), last_response_text)
+                continue
+
+            tracks_value = pattern_data.get("tracks")
+            if isinstance(tracks_value, str):
+                parsed_tracks = extract_json_payload(tracks_value)
+                if parsed_tracks is None:
+                    try:
+                        parsed_tracks = json.loads(tracks_value)
+                    except Exception:
+                        parsed_tracks = None
+                if isinstance(parsed_tracks, list):
+                    pattern_data["tracks"] = normalize_json_object(parsed_tracks)
+                    tracks_value = pattern_data["tracks"]
+
+            if isinstance(tracks_value, tuple):
+                tracks_value = list(tracks_value)
+                pattern_data["tracks"] = tracks_value
+
+            if not isinstance(tracks_value, list):
+                generation_error = (
+                    Exception(f"Invalid tracks array: tracks field is type {type(tracks_value).__name__}"),
+                    last_response_text,
+                )
                 continue
 
             valid_tracks = [
-                t for t in pattern_data.get("tracks", [])
+                t for t in tracks_value
                 if isinstance(t, dict) and isinstance(t.get("notes"), list) and len(t.get("notes", [])) > 0
             ]
             if not valid_tracks:
