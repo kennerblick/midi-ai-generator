@@ -199,6 +199,17 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                         idx = stripped.find(start_char, idx + 1)
             return None
 
+        def normalize_json_object(obj):
+            if isinstance(obj, str):
+                stripped = obj.strip()
+                if stripped.startswith('{') or stripped.startswith('['):
+                    try:
+                        decoded = json.loads(stripped)
+                        return normalize_json_object(decoded)
+                    except json.JSONDecodeError:
+                        return obj
+            return obj
+
         def is_valid_midi_bytes(data: bytes) -> bool:
             if not isinstance(data, (bytes, bytearray)):
                 return False
@@ -265,11 +276,12 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                     continue
 
                 try:
-                    pattern_data = json.loads(response_text)
+                    pattern_data = normalize_json_object(json.loads(response_text))
                     break
                 except json.JSONDecodeError as e:
                     pattern_data = extract_json_payload(response_text)
                     if pattern_data is not None:
+                        pattern_data = normalize_json_object(pattern_data)
                         break
                     print(f"[backend] Failed to parse Anthropic response for model {model_name}:", response_text)
                     last_error = e
