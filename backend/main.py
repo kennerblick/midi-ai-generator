@@ -208,6 +208,11 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                         return normalize_json_object(decoded)
                     except json.JSONDecodeError:
                         return obj
+                return obj
+            if isinstance(obj, dict):
+                return {key: normalize_json_object(value) for key, value in obj.items()}
+            if isinstance(obj, list):
+                return [normalize_json_object(value) for value in obj]
             return obj
 
         def is_valid_midi_bytes(data: bytes) -> bool:
