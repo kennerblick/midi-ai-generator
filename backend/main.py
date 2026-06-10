@@ -8,6 +8,11 @@ from pydantic import BaseModel
 from anthropic import Anthropic
 from midiutil import MIDIFile
 
+try:
+    import mido
+except ImportError:
+    mido = None
+
 app = FastAPI(title="MIDI AI Pattern Generator")
 
 # Configure Anthropic client using environment variable if provided
@@ -157,9 +162,6 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
             model_candidates = [m.strip() for m in model_override.split(",") if m.strip()]
         else:
             model_candidates = default_candidates
-        pattern_data = None
-        last_error = None
-        last_response_text = None
 
         def extract_text(block):
             if block is None:
@@ -197,64 +199,153 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                         idx = stripped.find(start_char, idx + 1)
             return None
 
-        for model_name in model_candidates:
-            if not model_name:
-                continue
-            print(f"[backend] Attempting Anthropic model: {model_name}")
-            try:
-                message = client.messages.create(
-                    model=model_name,
-                    max_tokens=2048,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-            except Exception as call_exc:
-                print(f"[backend] Anthropic call error for model {model_name}:", repr(call_exc))
-                last_error = call_exc
-                continue
+        def is_valid_midi_bytes(data: bytes) -> bool:
+            if not isinstance(data, (bytes, bytearray)):
+                return False
+            if len(data) < 14:
+                return False
+            if not data.startswith(b"MThd"):
+                return False
+            if b"MTrk" not in data:
+                return False
+            if mido is not None:
+                try:
+                    mido.MidiFile(file=io.BytesIO(data))
+                    return True
+                except Exception:
+                    return False
+            return True
 
-            if hasattr(message, 'content'):
-                response_text = extract_text(message.content)
-            elif hasattr(message, 'output'):
-                response_text = extract_text(message.output)
-            elif hasattr(message, 'completion'):
-                response_text = extract_text(message.completion)
-            else:
-                response_text = str(message)
+        pattern_data = None
+        last_error = None
+        last_response_text = None
+        generation_error = None
 
-            # Keep the last raw response text around for debugging when parsing fails
-            last_response_text = response_text
+        for generation_attempt in range(2):
+            if generation_attempt > 0:
+                print("[backend] Retrying generation due to invalid MIDI output")
 
-            # If the Anthropic client returned a streaming placeholder (e.g. ThinkingBlock),
-            # skip this model candidate and try the next one. These placeholders are not
-            # final content and cannot be parsed as JSON.
-            if isinstance(response_text, str) and ('ThinkingBlock(' in response_text or response_text.strip().startswith('ThinkingBlock')):
-                print(f"[backend] Skipping model {model_name} because it returned a streaming ThinkingBlock placeholder")
-                last_error = Exception("Anthropic returned streaming ThinkingBlock placeholder")
-                continue
+            pattern_data = None
+            last_error = None
+            last_response_text = None
 
-            try:
-                pattern_data = json.loads(response_text)
-                break
-            except json.JSONDecodeError as e:
-                pattern_data = extract_json_payload(response_text)
-                if pattern_data is not None:
+            for model_name in model_candidates:
+                if not model_name:
+                    continue
+                print(f"[backend] Attempting Anthropic model: {model_name}")
+                try:
+                    message = client.messages.create(
+                        model=model_name,
+                        max_tokens=2048,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                except Exception as call_exc:
+                    print(f"[backend] Anthropic call error for model {model_name}:", repr(call_exc))
+                    last_error = call_exc
+                    continue
+
+                if hasattr(message, 'content'):
+                    response_text = extract_text(message.content)
+                elif hasattr(message, 'output'):
+                    response_text = extract_text(message.output)
+                elif hasattr(message, 'completion'):
+                    response_text = extract_text(message.completion)
+                else:
+                    response_text = str(message)
+
+                # Keep the last raw response text around for debugging when parsing fails
+                last_response_text = response_text
+
+                # If the Anthropic client returned a streaming placeholder (e.g. ThinkingBlock),
+                # skip this model candidate and try the next one. These placeholders are not
+                # final content and cannot be parsed as JSON.
+                if isinstance(response_text, str) and ('ThinkingBlock(' in response_text or response_text.strip().startswith('ThinkingBlock')):
+                    print(f"[backend] Skipping model {model_name} because it returned a streaming ThinkingBlock placeholder")
+                    last_error = Exception("Anthropic returned streaming ThinkingBlock placeholder")
+                    continue
+
+                try:
+                    pattern_data = json.loads(response_text)
                     break
-                print(f"[backend] Failed to parse Anthropic response for model {model_name}:", response_text)
-                last_error = e
+                except json.JSONDecodeError as e:
+                    pattern_data = extract_json_payload(response_text)
+                    if pattern_data is not None:
+                        break
+                    print(f"[backend] Failed to parse Anthropic response for model {model_name}:", response_text)
+                    last_error = e
+                    continue
+
+            if pattern_data is None:
+                generation_error = (last_error, last_response_text)
                 continue
 
-        if pattern_data is None:
+            if not isinstance(pattern_data, dict) or not isinstance(pattern_data.get("tracks"), list):
+                generation_error = (Exception("Invalid tracks array"), last_response_text)
+                continue
+
+            valid_tracks = [
+                t for t in pattern_data.get("tracks", [])
+                if isinstance(t, dict) and isinstance(t.get("notes"), list) and len(t.get("notes", [])) > 0
+            ]
+            if not valid_tracks:
+                generation_error = (Exception("No valid MIDI tracks with notes"), last_response_text)
+                continue
+
+            midi = MIDIFile(len(pattern_data.get("tracks", [])))
+            track = 0
+            for track_data in pattern_data.get("tracks", []):
+                midi.addTempo(track, 0, request.bpm)
+                midi.addTrackName(track, 0, track_data.get("name", f"Track {track}"))
+                for note in track_data.get("notes", []):
+                    midi.addNote(
+                        track,
+                        channel=0,
+                        pitch=int(note.get("pitch", 60)),
+                        time=float(note.get("start_beat", 0)),
+                        duration=float(note.get("duration", 1)),
+                        volume=int(note.get("velocity", 64))
+                    )
+                track += 1
+
+            midi_buffer = io.BytesIO()
+            midi.writeFile(midi_buffer)
+            midi_buffer.seek(0)
+            midi_bytes = midi_buffer.getvalue()
+
+            try:
+                print(f"[backend] Generated MIDI size: {len(midi_bytes)} bytes")
+                prefix = midi_bytes[:16]
+                print(f"[backend] MIDI header (hex): {prefix.hex()}")
+                with open('/tmp/last_pattern.mid', 'wb') as f:
+                    f.write(midi_bytes)
+                print("[backend] Saved /tmp/last_pattern.mid for inspection")
+            except Exception:
+                pass
+
+            if not is_valid_midi_bytes(midi_bytes):
+                print("[backend] Generated MIDI failed validation.")
+                if generation_attempt == 0:
+                    print("[backend] Invalid MIDI, retrying generation automatically.")
+                    continue
+                raise HTTPException(
+                    status_code=500,
+                    detail="Generated MIDI file failed validation after retry. Check backend logs for details."
+                )
+
+            headers = {"Content-Disposition": f"attachment; filename=pattern_{request.genre}_{request.bpm}bpm.mid"}
+            return StreamingResponse(io.BytesIO(midi_bytes), media_type="audio/midi", headers=headers)
+
+        if generation_error is not None:
+            last_error, last_response_text = generation_error
             if last_error is not None:
                 detail_msg = str(last_error)
                 if hasattr(last_error, 'args'):
                     detail_msg += " | args:" + repr(last_error.args)
             else:
                 detail_msg = "unknown Anthropic error"
-            # Include a short preview of the raw model response to help debugging
             preview = None
             if last_response_text:
                 preview = last_response_text if len(last_response_text) <= 1000 else (last_response_text[:1000] + "... [truncated]")
-                # Also print the full raw response to stdout so it appears in container logs
                 try:
                     print("[backend-debug] Raw Anthropic response:")
                     print(last_response_text)
@@ -268,25 +359,7 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
                     f"Model response preview: {preview}"
                 ),
             )
-
-        if not isinstance(pattern_data, dict) or not isinstance(pattern_data.get("tracks"), list):
-            raise HTTPException(
-                status_code=500,
-                detail="Error generating pattern: Anthropic response did not include a valid 'tracks' array."
-            )
-
-        valid_tracks = [
-            t for t in pattern_data.get("tracks", [])
-            if isinstance(t, dict) and isinstance(t.get("notes"), list) and len(t.get("notes", [])) > 0
-        ]
-        if not valid_tracks:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "Error generating pattern: Anthropic response contained no valid MIDI tracks with notes. "
-                    "Please try again or adjust the prompt/model."
-                ),
-            )
+        raise HTTPException(status_code=500, detail="Error generating pattern: failed to generate valid MIDI output.")
 
     except HTTPException:
         raise
@@ -295,53 +368,6 @@ Respond with ONLY valid JSON (no markdown, no extra text) in this exact format:
         if hasattr(e, 'args'):
             detail_msg += " | args:" + repr(e.args)
         raise HTTPException(status_code=500, detail=f"Error generating pattern: {detail_msg}")
-    
-    # Create MIDI file
-    try:
-        midi = MIDIFile(len(pattern_data.get("tracks", [])))
-        track = 0
-        
-        for track_data in pattern_data.get("tracks", []):
-            # Set tempo and track name
-            midi.addTempo(track, 0, request.bpm)
-            midi.addTrackName(track, 0, track_data.get("name", f"Track {track}"))
-            
-            # Add notes to the track
-            for note in track_data.get("notes", []):
-                midi.addNote(
-                    track,
-                    channel=0,
-                    pitch=int(note.get("pitch", 60)),
-                    time=float(note.get("start_beat", 0)),
-                    duration=float(note.get("duration", 1)),
-                    volume=int(note.get("velocity", 64))
-                )
-            
-            track += 1
-        
-        # Write MIDI to bytes buffer
-        midi_buffer = io.BytesIO()
-        midi.writeFile(midi_buffer)
-        midi_buffer.seek(0)
-        midi_bytes = midi_buffer.getvalue()
-
-        # Diagnostic: log size and first bytes, and save a copy for inspection
-        try:
-            print(f"[backend] Generated MIDI size: {len(midi_bytes)} bytes")
-            prefix = midi_bytes[:16]
-            print(f"[backend] MIDI header (hex): {prefix.hex()}")
-            with open('/tmp/last_pattern.mid', 'wb') as f:
-                f.write(midi_bytes)
-            print("[backend] Saved /tmp/last_pattern.mid for inspection")
-        except Exception as _:
-            pass
-
-        # Return MIDI file as a streaming response with proper headers
-        headers = {"Content-Disposition": f"attachment; filename=pattern_{request.genre}_{request.bpm}bpm.mid"}
-        return StreamingResponse(io.BytesIO(midi_bytes), media_type="audio/midi", headers=headers)
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating MIDI file: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
